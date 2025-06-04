@@ -435,37 +435,66 @@ class HabrParserApp(QMainWindow):
         if not self.articles_data:
             return
 
+        # Для обычной сортировки дат используем встроенные методы
         if index == 1:
             self.table.sortItems(0, Qt.DescendingOrder)
+            return
         elif index == 2:
             self.table.sortItems(0, Qt.AscendingOrder)
-        elif index in (3, 4):  # Рейтинг или Комментарии
-            col = 4 if index == 3 else 5
-            rows = []
+            return
 
-            # Собираем данные из видимых строк
-            for row in range(self.table.rowCount()):
-                if self.table.isRowHidden(row):
-                    continue
-                row_data = []
-                for col_idx in range(self.table.columnCount()):
-                    item = self.table.item(row, col_idx)
-                    row_data.append(item.text() if item else "")
-                try:
-                    row_data[col] = int(row_data[col])
-                except ValueError:
-                    row_data[col] = 0
-                rows.append(row_data)
+        # Для рейтинга и комментариев - кастомная сортировка
+        col = 4 if index == 3 else 5  # 4 - рейтинг, 5 - комментарии
 
-            # Сортируем по числовому значению нужного столбца
-            rows.sort(key=lambda x: x[col], reverse=True)
+        # Собираем данные строк
+        rows_data = []
+        for row in range(self.table.rowCount()):
+            if self.table.isRowHidden(row):
+                continue
 
-            # Обновляем таблицу отсортированными строками
-            for i, row_data in enumerate(rows):
-                for j, value in enumerate(row_data):
-                    if isinstance(value, int):
-                        value = str(value)
-                    self.table.setItem(i, j, QTableWidgetItem(value))
+            # Получаем все данные ячеек
+            row_items = []
+            for col_idx in range(self.table.columnCount()):
+                item = self.table.item(row, col_idx)
+                row_items.append({
+                    'text': item.text() if item else '',
+                    'link': item.link if hasattr(item, 'link') else None,
+                    'tooltip': item.toolTip(),
+                    'alignment': item.textAlignment(),
+                    'user_data': item.data(Qt.UserRole) if col_idx == 7 else None
+                })
+
+            # Значение для сортировки
+            try:
+                sort_value = int(row_items[col]['text']) if row_items[col]['text'] else 0
+            except ValueError:
+                sort_value = 0
+
+            rows_data.append((sort_value, row_items))
+
+        # Сортируем
+        rows_data.sort(key=lambda x: x[0], reverse=True)
+
+        # Очищаем таблицу
+        self.table.setRowCount(0)
+        self.table.setRowCount(len(rows_data))
+
+        # Заполняем заново
+        for new_row, (_, row_items) in enumerate(rows_data):
+            for col_idx, item_data in enumerate(row_items):
+                if col_idx == 2 and item_data['link']:  # Столбец с ссылками
+                    item = ClickableTableWidgetItem(item_data['text'], item_data['link'])
+                else:
+                    item = QTableWidgetItem(item_data['text'])
+
+                # Восстанавливаем свойства
+                item.setToolTip(item_data['tooltip'])
+                item.setTextAlignment(item_data['alignment'])
+
+                if col_idx == 7 and item_data['user_data']:  # Краткое содержание
+                    item.setData(Qt.UserRole, item_data['user_data'])
+
+                self.table.setItem(new_row, col_idx, item)
 
     def export_to_csv(self):
         if not self.articles_data:
